@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Client Tracker · Deo Kanonga Photography</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;1,500&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  /* Same colors and fonts as www.deokanonga.com */
+  :root{--paper:#ffffff;--ink:#14161a;--muted:#4a4f57;--gold:#a3801f;--line:#e6e4df;--soft:#f7f6f3;--err:#a8322d;--ok:#2f6b3a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--soft);color:var(--ink);font:400 15px/1.5 Jost,system-ui,sans-serif}
+  h1,h2{font-family:"Playfair Display",Georgia,serif;font-weight:500;margin:0}
+  button,select,input,textarea{font:inherit;color:inherit}
+  button{cursor:pointer}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 60px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+  header h1{font-size:26px}
+  header h1 span{color:var(--gold);font-style:italic}
+  .who{color:var(--muted);font-size:14px;display:flex;align-items:center;gap:12px}
+  .btn{border:1px solid var(--ink);background:var(--ink);color:#fff;padding:8px 16px;border-radius:2px;letter-spacing:.04em}
+  .btn.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+  .btn:disabled{opacity:.5;cursor:default}
+
+  /* Login screen */
+  .login{max-width:420px;margin:12vh auto;background:var(--paper);border:1px solid var(--line);padding:40px 32px;text-align:center}
+  .login h1{font-size:30px;margin-bottom:8px}
+  .login p{color:var(--muted);margin:0 0 24px}
+
+  /* Status counters, which double as filters */
+  .counts{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:16px}
+  .count{background:var(--paper);border:1px solid var(--line);padding:12px;text-align:left;border-radius:2px}
+  .count b{display:block;font:500 24px "Playfair Display",serif}
+  .count small{color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:11px}
+  .count[aria-pressed="true"]{border-color:var(--gold);box-shadow:inset 0 -3px 0 var(--gold)}
+
+  .tools{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .tools input{flex:1;min-width:200px;padding:9px 12px;border:1px solid var(--line);background:var(--paper);border-radius:2px}
+
+  /* Inquiry list */
+  .list{background:var(--paper);border:1px solid var(--line)}
+  .row{border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  .sum{display:grid;grid-template-columns:110px 1.4fr 1fr 1fr 170px;gap:12px;align-items:center;padding:12px 16px}
+  .sum .open{all:unset;cursor:pointer;display:contents}
+  .name{font-weight:500}
+  .sub{color:var(--muted);font-size:13px}
+  .head{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em;background:var(--soft)}
+  select.status{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:2px;background:var(--paper)}
+  .detail{display:none;padding:0 16px 16px 138px;gap:16px;grid-template-columns:1fr 1fr}
+  .row.expanded .detail{display:grid}
+  .detail dl{margin:0;display:grid;grid-template-columns:110px 1fr;gap:4px 12px;font-size:14px}
+  .detail dt{color:var(--muted)}
+  .detail dd{margin:0;word-break:break-word}
+  .msg{white-space:pre-wrap;background:var(--soft);padding:12px;font-size:14px;margin:0}
+  .notes textarea{width:100%;min-height:80px;padding:8px;border:1px solid var(--line);border-radius:2px;resize:vertical}
+  .notes .btn{margin-top:6px;padding:6px 12px;font-size:13px}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+
+  #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:2px;font-size:14px;display:none;max-width:calc(100% - 32px)}
+  #toast.err{background:var(--err)}
+
+  /* Phone: each inquiry becomes a card */
+  @media (max-width:760px){
+    .head{display:none}
+    .sum{grid-template-columns:1fr auto;gap:4px 12px}
+    .sum .c-date{grid-column:1/-1;order:-1}
+    .sum .c-type,.sum .c-event{display:none}
+    .detail{padding:0 16px 16px;grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<main class="wrap" id="app"></main>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+// ---------- Settings ----------
+// Cognito (the login service) and API Gateway (the door to the Lambdas).
+var COGNITO_DOMAIN = 'https://<COGNITO_DOMAIN_PREFIX>.auth.us-east-2.amazoncognito.com';
+var CLIENT_ID = '<COGNITO_CLIENT_ID>';
+var API = 'https://<API_ID>.execute-api.us-east-2.amazonaws.com';
+// Must match a callback URL in the Cognito app client. Built from the current address,
+// so it keeps working after the site moves from the CloudFront URL to www.deokanonga.com.
+var REDIRECT_URI = location.origin + location.pathname;
+
+// The client journey, in order. "value" is what is stored in DynamoDB.
+var STATUSES = [
+  {value:'new', label:'New'},
+  {value:'replied', label:'Replied'},
+  {value:'contract_sent', label:'Contract sent'},
+  {value:'deposit_paid', label:'Deposit paid'},
+  {value:'booked', label:'Booked'},
+  {value:'delivered', label:'Delivered'}
+];
+
+var state = {items:[], filter:'all', search:'', open:{}};
+var app = document.getElementById('app');
+
+// ---------- Login (authorization code flow with PKCE) ----------
+// PKCE: the page makes a random secret (verifier), sends only its hash to Cognito,
+// then proves it owns the secret when trading the one-time code for tokens.
+function randomString(){
+  var bytes = crypto.getRandomValues(new Uint8Array(32));
+  return base64url(bytes);
+}
+function base64url(bytes){
+  var s = ''; bytes.forEach(function(b){ s += String.fromCharCode(b); });
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function sha256(text){
+  var hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return base64url(new Uint8Array(hash));
+}
+
+// Sends Deo to the Cognito login page (email, password, authenticator code).
+async function login(){
+  var verifier = randomString(), stateParam = randomString();
+  sessionStorage.setItem('pkce_verifier', verifier);
+  sessionStorage.setItem('oauth_state', stateParam);
+  var q = new URLSearchParams({
+    response_type:'code', client_id:CLIENT_ID, redirect_uri:REDIRECT_URI,
+    scope:'openid email', state:stateParam,
+    code_challenge: await sha256(verifier), code_challenge_method:'S256'
+  });
+  location.assign(COGNITO_DOMAIN + '/oauth2/authorize?' + q);
+}
+
+// After login, Cognito sends Deo back here with ?code=...; trade it for tokens.
+async function finishLogin(){
+  var params = new URLSearchParams(location.search);
+  var code = params.get('code');
+  if (!code) return;
+  history.replaceState(null, '', REDIRECT_URI); // remove ?code= from the address bar
+  if (params.get('state') !== sessionStorage.getItem('oauth_state')) throw new Error('Login state did not match. Please sign in again.');
+  var r = await fetch(COGNITO_DOMAIN + '/oauth2/token', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams({
+      grant_type:'authorization_code', client_id:CLIENT_ID, code:code,
+      redirect_uri:REDIRECT_URI, code_verifier:sessionStorage.getItem('pkce_verifier')
+    })
+  });
+  if (!r.ok) throw new Error('Sign-in failed (' + r.status + '). Please try again.');
+  var t = await r.json();
+  // Tokens live only in this browser tab and disappear when it closes.
+  sessionStorage.setItem('access_token', t.access_token);
+  sessionStorage.setItem('id_token', t.id_token);
+  sessionStorage.removeItem('pkce_verifier');
+  sessionStorage.removeItem('oauth_state');
+}
+
+// Reads the claims (email, expiry) inside a token. The API checks the signature; this is just for display.
+function claims(token){
+  try { return JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); }
+  catch(e){ return {}; }
+}
+function tokenValid(){
+  var t = sessionStorage.getItem('access_token');
+  return t && claims(t).exp * 1000 > Date.now() + 30000;
+}
+
+function logout(){
+  sessionStorage.clear();
+  location.assign(COGNITO_DOMAIN + '/logout?' + new URLSearchParams({client_id:CLIENT_ID, logout_uri:REDIRECT_URI}));
+}
+
+// ---------- Talking to the API ----------
+// Every call carries the access token; the JWT authorizer rejects calls without a valid one.
+async function api(method, path, body){
+  var r = await fetch(API + path, {
+    method:method,
+    headers:Object.assign({'Authorization':'Bearer ' + sessionStorage.getItem('access_token')},
+                          body ? {'Content-Type':'application/json'} : {}),
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (r.status === 401) { sessionStorage.clear(); renderLogin('Your session expired. Please sign in again.'); throw new Error('401'); }
+  if (!r.ok) throw new Error('The server answered ' + r.status + '.');
+  return r.json();
+}
+
+async function load(){
+  app.innerHTML = '<p class="empty">Loading inquiries…</p>';
+  try {
+    state.items = await api('GET', '/inquiries');
+    render();
+  } catch(e){
+    if (e.message !== '401') app.innerHTML = '<p class="empty">Could not load inquiries. ' + esc(e.message) + '</p>';
+  }
+}
+
+// Saves a new status or notes for one inquiry (PATCH /inquiries/{id}).
+async function save(id, changes, done){
+  try {
+    var updated = await api('PATCH', '/inquiries/' + encodeURIComponent(id), changes);
+    var i = state.items.findIndex(function(x){ return x.id === id; });
+    state.items[i] = Object.assign(state.items[i], updated);
+    render();
+    toast('Saved');
+  } catch(e){
+    if (e.message !== '401') { toast('Not saved. ' + e.message, true); render(); }
+  } finally { if (done) done(); }
+}
+
+// ---------- Drawing the page ----------
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function label(v){ var s = STATUSES.find(function(x){ return x.value === v; }); return s ? s.label : (v || 'New'); }
+function fmtDate(iso){
+  if (!iso) return '';
+  var d = new Date(iso);
+  return isNaN(d) ? esc(iso) : d.toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
+}
+function toast(text, isErr){
+  var t = document.getElementById('toast');
+  t.textContent = text; t.className = isErr ? 'err' : ''; t.style.display = 'block';
+  clearTimeout(toast.timer); toast.timer = setTimeout(function(){ t.style.display = 'none'; }, 3000);
+}
+
+function renderLogin(note){
+  app.innerHTML =
+    '<section class="login"><h1>Client Tracker</h1>' +
+    '<p>' + esc(note || 'Private area for Deo Kanonga Photography.') + '</p>' +
+    '<button class="btn" id="signin">Sign in</button></section>';
+  document.getElementById('signin').onclick = login;
+}
+
+function render(){
+  var email = claims(sessionStorage.getItem('id_token') || '').email || '';
+  var counts = {all: state.items.length};
+  STATUSES.forEach(function(s){ counts[s.value] = 0; });
+  state.items.forEach(function(x){ var k = x.status || 'new'; counts[k] = (counts[k] || 0) + 1; });
+
+  var q = state.search.toLowerCase();
+  var shown = state.items.filter(function(x){
+    if (state.filter !== 'all' && (x.status || 'new') !== state.filter) return false;
+    if (!q) return true;
+    return ['name','email','venue_or_city','inquiry_type','message','notes'].some(function(k){ return String(x[k] || '').toLowerCase().indexOf(q) > -1; });
+  });
+
+  var html =
+    '<header><h1>Client <span>Tracker</span></h1>' +
+    '<div class="who">' + esc(email) + ' <button class="btn ghost" id="refresh">Refresh</button> <button class="btn ghost" id="logout">Sign out</button></div></header>' +
+    '<div class="counts">' +
+      [{value:'all', label:'All'}].concat(STATUSES).map(function(s){
+        return '<button class="count" data-filter="' + s.value + '" aria-pressed="' + (state.filter === s.value) + '"><b>' + (counts[s.value] || 0) + '</b><small>' + s.label + '</small></button>';
+      }).join('') +
+    '</div>' +
+    '<div class="tools"><input id="search" type="search" placeholder="Search name, email, venue, notes…" value="' + esc(state.search) + '"></div>' +
+    '<div class="list">' +
+      '<div class="sum head"><span>Received</span><span>Client</span><span>Type</span><span>Event date</span><span>Status</span></div>' +
+      (shown.length ? shown.map(rowHtml).join('') : '<p class="empty">No inquiries here.</p>') +
+    '</div>';
+  app.innerHTML = html;
+
+  // Wire up the buttons and fields that were just drawn.
+  document.getElementById('logout').onclick = logout;
+  document.getElementById('refresh').onclick = load;
+  app.querySelectorAll('.count').forEach(function(b){ b.onclick = function(){ state.filter = b.dataset.filter; render(); }; });
+  var search = document.getElementById('search');
+  search.oninput = function(){ state.search = search.value; render(); var s = document.getElementById('search'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); };
+  app.querySelectorAll('.open').forEach(function(b){ b.onclick = function(){ var id = b.closest('.row').dataset.id; state.open[id] = !state.open[id]; render(); }; });
+  app.querySelectorAll('select.status').forEach(function(sel){
+    sel.onchange = function(){ sel.disabled = true; save(sel.closest('.row').dataset.id, {status: sel.value}); };
+  });
+  app.querySelectorAll('.notes').forEach(function(f){
+    f.onsubmit = function(e){ e.preventDefault(); var b = f.querySelector('button'); b.disabled = true; save(f.closest('.row').dataset.id, {notes: f.notes.value}, function(){ b.disabled = false; }); };
+  });
+}
+
+function rowHtml(x){
+  var cur = x.status || 'new';
+  var options = STATUSES.map(function(s){ return '<option value="' + s.value + '"' + (s.value === cur ? ' selected' : '') + '>' + s.label + '</option>'; }).join('');
+  var field = function(name, value){ return value ? '<dt>' + name + '</dt><dd>' + value + '</dd>' : ''; };
+  return '<div class="row' + (state.open[x.id] ? ' expanded' : '') + '" data-id="' + esc(x.id) + '">' +
+    '<div class="sum">' +
+      '<button class="open" aria-expanded="' + !!state.open[x.id] + '">' +
+        '<span class="c-date sub">' + fmtDate(x.created_at) + '</span>' +
+        '<span><span class="name">' + esc(x.name) + '</span><br><span class="sub">' + esc(x.venue_or_city || x.email) + '</span></span>' +
+        '<span class="c-type">' + esc(x.inquiry_type) + '</span>' +
+        '<span class="c-event">' + esc(x.date) + '</span>' +
+      '</button>' +
+      '<select class="status" aria-label="Status for ' + esc(x.name) + '">' + options + '</select>' +
+    '</div>' +
+    '<div class="detail"><div>' +
+      '<dl>' +
+        field('Email', '<a href="mailto:' + esc(x.email) + '">' + esc(x.email) + '</a>') +
+        field('Phone', x.phone ? '<a href="tel:' + esc(x.phone) + '">' + esc(x.phone) + '</a>' : '') +
+        field('Type', esc(x.inquiry_type)) +
+        field('Event date', esc(x.date)) +
+        field('Venue / city', esc(x.venue_or_city)) +
+        field('Status since', x.status_updated_at ? fmtDate(x.status_updated_at) : '') +
+      '</dl>' +
+      (x.message ? '<p class="msg">' + esc(x.message) + '</p>' : '') +
+    '</div>' +
+    '<form class="notes"><label class="sub" for="n-' + esc(x.id) + '">Private notes</label>' +
+      '<textarea name="notes" id="n-' + esc(x.id) + '" placeholder="Call notes, package chosen, payment dates…">' + esc(x.notes) + '</textarea>' +
+      '<button class="btn" type="submit">Save notes</button></form>' +
+    '</div></div>';
+}
+
+// ---------- Start ----------
+(async function(){
+  try {
+    await finishLogin();
+    if (tokenValid()) load(); else renderLogin();
+  } catch(e){ renderLogin(e.message); }
+})();
+</script>
+</body>
+</html>
