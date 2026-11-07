@@ -8,20 +8,7 @@ I built it by hand in the AWS console to learn how authentication, APIs and leas
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    D([Me]) -->|HTTPS| CF[CloudFront + S3<br/>admin.html]
-    D -->|email + password + MFA code| COG[Cognito<br/>managed login]
-    COG -->|tokens via code flow + PKCE| CF
-    CF -->|GET /inquiries<br/>PATCH /inquiries/id<br/>Bearer token| APIGW[API Gateway<br/>HTTP API<br/>JWT authorizer]
-    APIGW --> L1[Lambda<br/>listInquiries]
-    APIGW --> L2[Lambda<br/>updateInquiry]
-    L1 -->|Scan| DDB[(DynamoDB<br/>Inquiries)]
-    L2 -->|UpdateItem| DDB
-    FORM([Website form<br/>Project 1]) -.->|new rows| DDB
-    L1 -.-> CW[CloudWatch alarms] -.-> SNS[SNS email]
-    L2 -.-> CW
-```
+![Architecture](serverless-client-tracker-purple.png)
 
 ## Services and why
 
